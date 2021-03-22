@@ -1,6 +1,7 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -19,8 +20,12 @@ public class Server implements Runnable{
     static final int PORT = 8080;
 
 
+    public Socket getConnect() {
+        return connect;
+    }
+
     //Socket
-    private Socket connect;
+    private final Socket connect;
 
     public Server(Socket c) {
         connect = c;
@@ -35,106 +40,116 @@ public class Server implements Runnable{
             while(true) {
                 Server myServer = new Server(serverConnect.accept());
                 System.out.println("Connection awaken. " + new Date());
+//                new Thread(new Server(serverConnect.accept())).start();
                 myServer.run();
             }
         } catch (IOException e) {
-            System.err.println("Server connection error : " + e.getMessage());;
+            System.err.println("Server connection error : " + e.getMessage());
         }
     }
 
     @Override
     public void run() {
-        BufferedReader in = null;
+        BufferedReader in;
         PrintWriter out = null;
         BufferedOutputStream dataOut = null;
         String fileRequest = null;
-
-        try {
-            in = new BufferedReader((new InputStreamReader((connect.getInputStream()))));
-            out = new PrintWriter(connect.getOutputStream());
-            dataOut = new BufferedOutputStream(connect.getOutputStream());
-
-            String input = in.readLine();
-            StringTokenizer parse = new StringTokenizer(input);
-            String method = parse.nextToken().toUpperCase();
-            fileRequest = parse.nextToken().toLowerCase();
-            Hashtable<String, String> HeadersTable = getHeadersTable(in);
-
-            if (!method.equals("GET")) {
-                System.out.println("Method " + method + " not allowed");
-                File file = new File(WEB_ROOT, METHOD_NOT_ALLOWED);
-                int length = (int) file.length();
-                String contMimeType = "text/html";
-                byte[] fileData = readFileData(file, length);
-
-                out.println("HTTP/1.1 405 Not allowed");
-                out.println("Server : Rostiks server : 1.0");
-                DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
-                ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
-                out.println("Date" + date.format(dateTimeFormatter));
-                out.println("Last Modified: " + file.lastModified());
-                out.println("Content-type: " + contMimeType);
-                out.println("Content-length: " + length);
-                out.println();
-                out.flush();
-
-                dataOut.write(fileData, 0, length);
-                dataOut.flush();
-
-            } else {
-                if (fileRequest.endsWith("/")) {
-                    fileRequest += DEFAULT_FILE;
-                }
-
-                File file = new File(WEB_ROOT, fileRequest);
-                int length = (int) file.length();
-                String content = getContentType(fileRequest);
-
-                byte[] fileData = readFileData(file, length);
-
-                out.println("HTTP/1.1 200 OK");
-                out.println("Server : Rostiks server : 1.0");
-                DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
-                ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
-                out.println("Date" + date.format(dateTimeFormatter));
-                out.println("Last Modified: " + file.lastModified());
-                if(HeadersTable.get("connection").equalsIgnoreCase("Keep-Alive")) {
-                    out.println("Connection: Keep-Alive");
-                    out.println("Keep-Alive: timeout=5, max=1000");
-                    connect.setKeepAlive(true);
-                }
-                out.println("Content-type: " + content);
-                out.println("Content-length: " + length);
-                out.println();
-                out.flush();
-
-                dataOut.write(fileData, 0, length);
-                dataOut.flush();
-
-                System.out.println("File " + fileRequest + ", type " + content + "returned");
-            }
-        } catch (FileNotFoundException fnfe) {
+        while(true) {
+            System.out.println("ITERATION");
             try {
-                fileNotFound(Objects.requireNonNull(out), Objects.requireNonNull(dataOut), fileRequest);
+                this.getConnect().setSoTimeout(20000);
+                in = new BufferedReader((new InputStreamReader((connect.getInputStream()))));
+                out = new PrintWriter(connect.getOutputStream());
+                dataOut = new BufferedOutputStream(connect.getOutputStream());
+
+                String input = in.readLine();
+                if(input.length() == 0) {
+                    System.out.println("Lost connection with client");
+                    break;
+                }
+                StringTokenizer parse = new StringTokenizer(input);
+                String method = parse.nextToken().toUpperCase();
+                fileRequest = parse.nextToken().toLowerCase();
+                Hashtable<String, String> HeadersTable = getHeadersTable(in);
+
+                if (!method.equals("GET")) {
+                    System.out.println("Method " + method + " not allowed");
+                    File file = new File(WEB_ROOT, METHOD_NOT_ALLOWED);
+                    int length = (int) file.length();
+                    String contMimeType = "text/html";
+                    byte[] fileData = readFileData(file, length);
+
+                    out.println("HTTP/1.1 405 Not allowed");
+                    out.println("Server : Rostiks server : 1.0");
+                    DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
+                    ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
+                    out.println("Date" + date.format(dateTimeFormatter));
+                    out.println("Last Modified: " + file.lastModified());
+                    out.println("Content-type: " + contMimeType);
+                    out.println("Content-length: " + length);
+                    out.println();
+                    out.flush();
+
+                    dataOut.write(fileData, 0, length);
+                    dataOut.flush();
+
+                } else {
+                    if (fileRequest.endsWith("/")) {
+                        fileRequest += DEFAULT_FILE;
+                    }
+
+                    File file = new File(WEB_ROOT, fileRequest);
+                    int length = (int) file.length();
+                    String content = getContentType(fileRequest);
+
+                    byte[] fileData = readFileData(file, length);
+
+                    out.println("HTTP/1.1 200 OK");
+                    out.println("Server : Rostiks server : 1.0");
+                    DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
+                    ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
+                    out.println("Date" + date.format(dateTimeFormatter));
+                    out.println("Last Modified: " + file.lastModified());
+                    System.out.println("CONNECTION HEADER IS : " + HeadersTable.get("connection"));
+                    if (HeadersTable.get("connection").equalsIgnoreCase(" keep-alive")) {
+                        out.println("Connection: Keep-Alive");
+                        out.println("Keep-Alive: timeout=20000, max=1000");
+                        connect.setKeepAlive(true);
+                    }else {
+                        System.out.println("Client called 'close'");
+                        break;
+                    }
+                    out.println("Content-type: " + content);
+                    out.println("Content-length: " + length);
+                    out.println();
+                    out.flush();
+
+                    dataOut.write(fileData, 0, length);
+                    dataOut.flush();
+
+                    System.out.println("File " + fileRequest + ", type " + content + "returned");
+                }
+            } catch (FileNotFoundException fnfe) {
+                try {
+                    fileNotFound(Objects.requireNonNull(out), Objects.requireNonNull(dataOut), fileRequest);
+                } catch (IOException e) {
+                    System.err.println("Error with file not found exception : " + e.getMessage());
+                }
+            } catch (SocketTimeoutException e) {
+                System.err.println("Socket timed out");
+                try {
+                    this.getConnect().close();
+                } catch (IOException ioException) {
+                    ioException.printStackTrace();
+                }
             } catch (IOException e) {
-                System.err.println("Error with file not found exception : " + e.getMessage());;
+                System.err.println("Server error : " + e);
             }
-        } catch (IOException e) {
-            System.err.println("Server error : " + e);
-        } finally {
-            try {
-                Objects.requireNonNull(in).close();
-                Objects.requireNonNull(out).close();
-                Objects.requireNonNull(dataOut).close();
-            } catch (IOException e) {
-                System.err.println("Error closing stream : " + e.getMessage());
-            }
-            System.out.println("Connection closed");
         }
     }
 
     private Hashtable<String, String> getHeadersTable(BufferedReader in) throws IOException {
-        Hashtable<String, String> HeadersTable = new Hashtable<String, String>();
+        Hashtable<String, String> HeadersTable = new Hashtable<>();
         String curLine;
         String[] splitLine;
         while((curLine = in.readLine()) != null) {
