@@ -33,7 +33,7 @@ public class QueryHandler implements Runnable{
         PrintWriter out = null;
         BufferedOutputStream dataOut = null;
         String fileRequest = null;
-        while(true) {
+        while (!this.getConnect().isClosed()) {
             try {
                 this.getConnect().setSoTimeout(0);
                 in = new BufferedReader((new InputStreamReader((connect.getInputStream()))));
@@ -42,7 +42,7 @@ public class QueryHandler implements Runnable{
 //                out = new BufferedWriter(new OutputStreamWriter(connect.getOutputStream()));
 
                 String input = in.readLine();
-                if(input == null) {
+                if (input == null) {
                     System.out.println("Lost connection with client");
                     break;
                 }
@@ -57,22 +57,17 @@ public class QueryHandler implements Runnable{
                     int length = (int) file.length();
                     String contMimeType = "text/html";
                     byte[] fileData = readFileData(file, length);
-
-                    out.println("HTTP/1.1 405 Not allowed");
-                    out.println("Server : Rostiks server : 1.0");
                     DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
                     ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
-                    out.println("Date" +    date.format(dateTimeFormatter));
-                    out.println("Last Modified: " + file.lastModified());
-                    out.println("Content-type: " + contMimeType);
-                    out.println("Content-length: " + length);
-                    out.flush();
-
-//                    out.write(Arrays.toString(fileData), 0, length);
-                    dataOut.write(fileData, 0, length);
-                    dataOut.flush();
-                    out.flush();
-
+                    new HTTPResponse.Builder()
+                            .statusLine("HTTP/1.1 405 Not allowed")
+                            .header("Server : Rostiks server : 1.0")
+                            .header("Date" + date.format(dateTimeFormatter))
+                            .header("Last Modified: " + file.lastModified())
+                            .header("Content-type: " + contMimeType)
+                            .header("Content-length: " + length)
+                            .data(fileData)
+                            .printResponse(out, dataOut);
                 } else {
                     if (fileRequest.endsWith("/")) {
                         fileRequest += DEFAULT_FILE;
@@ -84,28 +79,18 @@ public class QueryHandler implements Runnable{
 
                     byte[] fileData = readFileData(file, length);
 
-                    out.println("HTTP/1.1 200 OK");
-                    out.println("Server : Rostiks server : 1.0");
                     DateTimeFormatter dateTimeFormatter = DateTimeFormatter.RFC_1123_DATE_TIME;
                     ZonedDateTime date = ZonedDateTime.now(ZoneOffset.UTC);
-                    out.println("Date" + date.format(dateTimeFormatter));
-                    out.println("Last Modified: " + file.lastModified());
-                    System.out.println("CONNECTION HEADER IS : " + HeadersTable.get("connection"));
-                    if (HeadersTable.get("connection").equalsIgnoreCase(" keep-alive")) {
-                        out.println("Connection: Keep-Alive");
-                        out.println("Keep-Alive: timeout=20000, max=1000");
-                        connect.setKeepAlive(true);
-                    }else {
-                        System.out.println("Client called 'close'");
-                        break;
-                    }
-                    out.println("Content-type: " + content);
-                    out.println("Content-length: " + length);
-                    out.println();
-                    out.flush();
-
-                    dataOut.write(fileData, 0, length);
-                    dataOut.flush();
+                    new HTTPResponse.Builder()
+                            .statusLine("HTTP/1.1 200 OK")
+                            .header("Server : Rostiks server : 1.0")
+                            .header("Date" + date.format(dateTimeFormatter))
+                            .header("Last Modified: " + file.lastModified())
+                            .header("Connection: Keep-Alive")
+                            .header("Content-type: " + content)
+                            .header("Content-length: " + length)
+                            .data(fileData)
+                            .printResponse(out, dataOut);
 
                     System.out.println("File " + fileRequest + ", type " + content + "returned");
                 }
@@ -119,11 +104,16 @@ public class QueryHandler implements Runnable{
                 System.err.println("Socket timed out");
                 try {
                     this.getConnect().close();
-                } catch (IOException ioException) {
-                    ioException.printStackTrace();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
                 }
             } catch (IOException e) {
                 System.err.println("Server error : " + e);
+                try {
+                    this.getConnect().close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
             }
         }
     }
@@ -136,7 +126,6 @@ public class QueryHandler implements Runnable{
             if(curLine.equals("")) {
                 break;
             }
-            System.out.println(curLine);
             splitLine = curLine.split(":");
             if(splitLine.length < 2) {
                 throw new IOException("HTTP Request is incorrect!");

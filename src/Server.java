@@ -14,7 +14,6 @@ public class Server {
             while(true) {
                 QueryHandler myQueryHandler = new QueryHandler(serverConnect.accept());
                 System.out.println("Connection awaken. " + new Date());
-//                new Thread(new Server(serverConnect.accept())).start();
                 myQueryHandler.run();
             }
         } catch (IOException e) {
